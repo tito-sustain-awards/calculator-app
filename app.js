@@ -1,3 +1,4 @@
+const API_URL = 'http://localhost:5000/api/calc';
 const display = document.getElementById('display');
 const history = document.getElementById('history');
 const buttons = document.querySelectorAll('.button');
@@ -17,6 +18,22 @@ const updateDisplay = () => {
 
 const formatOperator = (operator) => {
   return ({ add: '+', subtract: '−', multiply: '×', divide: '÷' })[operator] || '';
+};
+
+const apiRequest = async (payload) => {
+  const response = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || 'API error');
+  }
+  return data.result;
 };
 
 const inputDigit = (digit) => {
@@ -39,7 +56,7 @@ const inputDecimal = () => {
   }
 };
 
-const handleOperator = (nextOperator) => {
+const handleOperator = async (nextOperator) => {
   const value = parseFloat(state.value);
 
   if (state.operator && state.waitingForOperand) {
@@ -50,7 +67,11 @@ const handleOperator = (nextOperator) => {
   if (state.previousValue == null) {
     state.previousValue = value;
   } else if (state.operator) {
-    const result = calculate(state.previousValue, value, state.operator);
+    const result = await apiRequest({
+      action: state.operator,
+      left: state.previousValue,
+      right: value,
+    });
     state.previousValue = result;
     state.value = String(result);
   }
@@ -59,12 +80,8 @@ const handleOperator = (nextOperator) => {
   state.operator = nextOperator;
 };
 
-const calculate = (left, right, operator) => {
-  if (operator === 'add') return left + right;
-  if (operator === 'subtract') return left - right;
-  if (operator === 'multiply') return left * right;
-  if (operator === 'divide') return right === 0 ? 'Error' : left / right;
-  return right;
+const calculate = async (left, right, operator) => {
+  return await apiRequest({ action: operator, left, right });
 };
 
 const clearAll = () => {
@@ -75,24 +92,33 @@ const clearAll = () => {
   state.lastAction = null;
 };
 
-const toggleSign = () => {
+const toggleSign = async () => {
   if (state.value === '0') return;
-  state.value = state.value.startsWith('-') ? state.value.slice(1) : `-${state.value}`;
+
+  const result = await apiRequest({
+    action: 'toggle-sign',
+    value: state.value,
+  });
+  state.value = String(result);
 };
 
-const applyPercent = () => {
+const applyPercent = async () => {
   const value = parseFloat(state.value);
-  state.value = String(value / 100);
+  const result = await apiRequest({
+    action: 'percent',
+    value,
+  });
+  state.value = String(result);
 };
 
-const handleEquals = () => {
+const handleEquals = async () => {
   const value = parseFloat(state.value);
 
   if (state.operator == null || state.previousValue == null) {
     return;
   }
 
-  const result = calculate(state.previousValue, value, state.operator);
+  const result = await calculate(state.previousValue, value, state.operator);
   state.value = String(result);
   state.previousValue = null;
   state.operator = null;
@@ -100,36 +126,42 @@ const handleEquals = () => {
 };
 
 buttons.forEach((button) => {
-  button.addEventListener('click', () => {
+  button.addEventListener('click', async () => {
     const { action, digit } = button.dataset;
 
-    if (digit) {
-      inputDigit(digit);
-    } else if (action) {
-      switch (action) {
-        case 'clear':
-          clearAll();
-          break;
-        case 'toggle-sign':
-          toggleSign();
-          break;
-        case 'percent':
-          applyPercent();
-          break;
-        case 'decimal':
-          inputDecimal();
-          break;
-        case 'equals':
-          handleEquals();
-          break;
-        case 'add':
-        case 'subtract':
-        case 'multiply':
-        case 'divide':
-          handleOperator(action);
-          break;
+    try {
+      if (digit) {
+        inputDigit(digit);
+      } else if (action) {
+        switch (action) {
+          case 'clear':
+            clearAll();
+            break;
+          case 'toggle-sign':
+            await toggleSign();
+            break;
+          case 'percent':
+            await applyPercent();
+            break;
+          case 'decimal':
+            inputDecimal();
+            break;
+          case 'equals':
+            await handleEquals();
+            break;
+          case 'add':
+          case 'subtract':
+          case 'multiply':
+          case 'divide':
+            await handleOperator(action);
+            break;
+        }
       }
+    } catch (error) {
+      state.value = 'Error';
+      console.error(error);
     }
+
     updateDisplay();
   });
 });
